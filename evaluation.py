@@ -4,6 +4,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from collections import OrderedDict
 from itertools import chain
 import argparse
+import sys
 
 
 def parse_arguments():
@@ -12,7 +13,8 @@ def parse_arguments():
     parser.add_argument('--embeddings-path', type=str, required=True, help='path to the embeddings csv')
     parser.add_argument('--output-path', type=str, default="results.csv", help='path to the output csv')
     parser.add_argument('--top-k', type=int, default=1000, help='sorting all content nodes is expensive, so take the top k content nodes for each topic node')
-    parser.add_argument('--k', type=int, default=10, help='used in recall, precision, and f1')
+    parser.add_argument('--k', type=int, default=5, help='used in recall, precision, and f1')
+    parser.add_argument('--include-none-leaf-nodes', action='store_true', default=False, help='whether to report none-leaf topic nodes results')
     return parser.parse_args()
 
 def get_recall_precision_f1(ranks, k):
@@ -60,6 +62,7 @@ def get_metrics(x, ranks):
     median_rank = get_median_rank(cur_ranks)
     mean_rank = get_mean_rank(cur_ranks)
     return pd.DataFrame({
+        "number of topics": [len(cur_ranks)],
         f"recall@{args.k}": [recall],
         f"precision@{args.k}": [precision],
         f"f1@{args.k}": [f1],
@@ -72,6 +75,7 @@ def get_metrics(x, ranks):
 if __name__ == '__main__':
     args = parse_arguments()
     print("Reading input data...", end=" ")
+    sys.stdout.flush()
     nodes = pd.read_csv(args.nodes_path)
     embeddings = pd.read_csv(args.embeddings_path, index_col=0)
     
@@ -81,12 +85,16 @@ if __name__ == '__main__':
     topic_nodes_embeddings = embeddings.loc[topic_nodes["node_id"], :].reset_index(drop=True)
     content_nodes_embeddings = embeddings.loc[content_nodes["node_id"], :].reset_index(drop=True)
     print("done")
+    sys.stdout.flush()
 
     print("Calculating cosine similarity...", end=" ")
+    sys.stdout.flush()
     cos_sim = cosine_similarity(topic_nodes_embeddings.to_numpy(), content_nodes_embeddings.to_numpy())
     print("done")
+    sys.stdout.flush()
     
     print("Get predictions...", end=" ")
+    sys.stdout.flush()
     # take top-k content nodes for each topic node
     cos_sim_partition = np.argpartition(cos_sim, kth=-args.top_k, axis=1)
     top_cos_sim = np.take_along_axis(cos_sim, cos_sim_partition[:,-args.top_k:], axis=1)
@@ -99,9 +107,11 @@ if __name__ == '__main__':
     for i in range(len(topic_nodes)):
         predictions[topic_nodes.loc[i, "node_id"]] = list(OrderedDict.fromkeys(cos_sim_pred[i]))
     print("done")
+    sys.stdout.flush()
         
     # get ground truth
     print("Get ground truth...", end=" ")
+    sys.stdout.flush()
     gt = content_nodes.groupby("parent_id").apply(lambda x: set(x["content_id"])).to_dict()
     for i in range(topic_nodes["level"].max(), -1, -1):
         for _, row in topic_nodes[topic_nodes["level"] == i].iterrows():
@@ -111,9 +121,11 @@ if __name__ == '__main__':
     for key in set(gt.keys()) - set(topic_nodes.node_id):
         del gt[key]
     print("done")
+    sys.stdout.flush()
     
     # get ranks for every ground truth content
     print("Get ranks for each node...", end=" ")
+    sys.stdout.flush()
     ranks = {}
     for node_id in gt:
         ranks[node_id] = []
@@ -123,9 +135,14 @@ if __name__ == '__main__':
             else:
                 ranks[node_id].append(args.top_k)
     print("done")
+    sys.stdout.flush()
 
-    print("Generating resultst...", end=" ")
+    print("Generating results...", end=" ")
+    sys.stdout.flush()
     # calculate metrics using ranks
+    if not args.include_none_leaf_nodes:
+        leaf_topic_nodes = content_nodes["parent_id"].unique()
+        topic_nodes = topic_nodes[topic_nodes["node_id"].isin(leaf_topic_nodes)].reset_index(drop=True)
     results = get_metrics(topic_nodes, ranks=ranks)
     cur_results = topic_nodes.groupby("language").apply(
         get_metrics, ranks=ranks).reset_index().drop(columns=["level_1"])
@@ -137,7 +154,9 @@ if __name__ == '__main__':
         get_metrics, ranks=ranks).reset_index().drop(columns=["level_3"])
     results = results.append(cur_results)
     print("done")
+    sys.stdout.flush()
     
     # save
     results.to_csv(args.output_path, index=False)
     print(f"results saved to {args.output_path}")
+    sys.stdout.flush()
