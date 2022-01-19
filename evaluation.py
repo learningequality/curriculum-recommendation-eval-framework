@@ -82,14 +82,20 @@ if __name__ == '__main__':
     topic_nodes = nodes[nodes["kind"] == "topic"].reset_index(drop=True)
     content_nodes = nodes[nodes["kind"] != "topic"].reset_index(drop=True)
     
-    topic_nodes_embeddings = embeddings.loc[topic_nodes["node_id"], :].reset_index(drop=True)
-    content_nodes_embeddings = embeddings.loc[content_nodes["node_id"], :].reset_index(drop=True)
+    topic_nodes_embeddings = embeddings.loc[topic_nodes["node_id"]].iloc[:,:-1]
+    topic_nodes_weights = embeddings.loc[topic_nodes["node_id"]].iloc[:,-1]
+    content_nodes_embeddings = embeddings.loc[content_nodes["node_id"]].iloc[:,:-1]
+
     print("done")
     sys.stdout.flush()
 
     print("Calculating cosine similarity...", end=" ")
     sys.stdout.flush()
     cos_sim = cosine_similarity(topic_nodes_embeddings.to_numpy(), content_nodes_embeddings.to_numpy())
+    cos_sim = pd.DataFrame(cos_sim, index=topic_nodes_embeddings.index)
+    cos_sim = cos_sim.multiply(topic_nodes_weights, axis="index")
+    cos_sim = cos_sim.groupby(cos_sim.index).max()
+    cos_sim = cos_sim.loc[topic_nodes["node_id"],:].values
     print("done")
     sys.stdout.flush()
     
