@@ -14,6 +14,7 @@ def parse_arguments():
     parser.add_argument('--output-path', type=str, default="results.csv", help='path to the output csv')
     parser.add_argument('--top-k', type=int, default=1000, help='sorting all content nodes is expensive, so take the top k content nodes for each topic node')
     parser.add_argument('--k', type=int, default=5, help='used in recall, precision, and f1')
+    parser.add_argument('--group-method', type=str, choices=['max_cosine', 'average_cosine', 'average_vector'], default='max_cosine', help='the way to group multiple embeddings for topic nodes')
     parser.add_argument('--include-none-leaf-nodes', action='store_true', default=False, help='whether to report none-leaf topic nodes results')
     return parser.parse_args()
 
@@ -85,6 +86,9 @@ if __name__ == '__main__':
     topic_nodes_embeddings = embeddings.loc[topic_nodes["node_id"]].iloc[:,:-1]
     topic_nodes_weights = embeddings.loc[topic_nodes["node_id"]].iloc[:,-1]
     content_nodes_embeddings = embeddings.loc[content_nodes["node_id"]].iloc[:,:-1]
+    if args.group_method == 'average_vector':
+        topic_nodes_embeddings = topic_nodes_embeddings.multiply(topic_nodes_weights, axis='index')
+        topic_nodes_embeddings = topic_nodes_embeddings.groupby(topic_nodes_embeddings.index).mean()
 
     print("done")
     sys.stdout.flush()
@@ -93,8 +97,12 @@ if __name__ == '__main__':
     sys.stdout.flush()
     cos_sim = cosine_similarity(topic_nodes_embeddings.to_numpy(), content_nodes_embeddings.to_numpy())
     cos_sim = pd.DataFrame(cos_sim, index=topic_nodes_embeddings.index)
-    cos_sim = cos_sim.multiply(topic_nodes_weights, axis="index")
-    cos_sim = cos_sim.groupby(cos_sim.index).max()
+    if args.group_method == 'max_cosine':
+        cos_sim = cos_sim.multiply(topic_nodes_weights, axis="index")
+        cos_sim = cos_sim.groupby(cos_sim.index).max()
+    elif args.group_method == 'average_cosine':
+        cos_sim = cos_sim.multiply(topic_nodes_weights, axis="index")
+        cos_sim = cos_sim.groupby(cos_sim.index).mean()
     cos_sim = cos_sim.loc[topic_nodes["node_id"],:].values
     print("done")
     sys.stdout.flush()
